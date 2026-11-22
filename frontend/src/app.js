@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import "@/App.css";
+import "@/app.css";
 import { Toaster } from "@/components/ui/sonner";
 import { Header } from "@/components/Header";
 import { DashboardTab } from "@/components/dashboard/DashboardTab";

@@ -1,7 +1,7 @@
 import {
   Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { ChartFrame, ChartTooltip, axisProps } from "@/components/charts/ChartParts";
+import { ChartFrame, ChartTooltip, axisProps } from "@/components/charts/ChartsParts";
 import { COLORS, monthLabel } from "@/lib/format";
 
 const grid = <CartesianGrid stroke={COLORS.grid} strokeDasharray="3 3" vertical={false} />;

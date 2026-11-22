@@ -1,41 +1,51 @@
-import * as React from "react"
-import * as AccordionPrimitive from "@radix-ui/react-accordion"
-import { ChevronDown } from "lucide-react"
+import { BarChart3, Package, Sparkles, TrendingUp } from "lucide-react";
 
-import { cn } from "@/lib/utils"
+const TABS = [
+  { id: "dashboard", label: "Dashboard", icon: BarChart3 },
+  { id: "ask", label: "Ask the Data", icon: Sparkles },
+  { id: "forecast", label: "Forecast", icon: TrendingUp },
+];
 
-const Accordion = AccordionPrimitive.Root
+export const Header = ({ tab, onTab, meta }) => (
+  <header className="sticky top-0 z-30 border-b border-slate-800/80 bg-[#070b14]/90 backdrop-blur-md">
+    <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-10">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
+          <Package className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-base font-semibold tracking-tight text-slate-100">
+            Logistics Analytics Copilot
+          </h1>
+          <p className="text-xs text-slate-400">
+            {meta
+              ? `${meta.rows} orders · ${meta.date_min} to ${meta.date_max}`
+              : "Loading dataset metadata..."}
+          </p>
+        </div>
+      </div>
 
-const AccordionItem = React.forwardRef(({ className, ...props }, ref) => (
-  <AccordionPrimitive.Item ref={ref} className={cn("border-b", className)} {...props} />
-))
-AccordionItem.displayName = "AccordionItem"
-
-const AccordionTrigger = React.forwardRef(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Header className="flex">
-    <AccordionPrimitive.Trigger
-      ref={ref}
-      className={cn(
-        "flex flex-1 items-center justify-between py-4 text-sm font-medium transition-all hover:underline text-left [&[data-state=open]>svg]:rotate-180",
-        className
-      )}
-      {...props}>
-      {children}
-      <ChevronDown
-        className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200" />
-    </AccordionPrimitive.Trigger>
-  </AccordionPrimitive.Header>
-))
-AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
-
-const AccordionContent = React.forwardRef(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Content
-    ref={ref}
-    className="overflow-hidden text-sm data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
-    {...props}>
-    <div className={cn("pb-4 pt-0", className)}>{children}</div>
-  </AccordionPrimitive.Content>
-))
-AccordionContent.displayName = AccordionPrimitive.Content.displayName
-
-export { Accordion, AccordionItem, AccordionTrigger, AccordionContent }
+      <nav className="flex items-center gap-1 rounded-xl border border-slate-800 bg-slate-900/70 p-1">
+        {TABS.map(({ id, label, icon: Icon }) => {
+          const active = tab === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              data-testid={`nav-tab-${id}`}
+              onClick={() => onTab(id)}
+              className={`flex items-center gap-2 rounded-lg px-3.5 py-1.5 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-cyan-500/15 text-cyan-300 shadow-sm ring-1 ring-cyan-500/30"
+                  : "text-slate-400 hover:bg-slate-800/70 hover:text-slate-200"
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </div>
+  </header>
+);

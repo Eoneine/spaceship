@@ -1,7 +1,7 @@
 import {
   Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { ChartTooltip, axisProps } from "@/components/charts/ChartParts";
+import { ChartTooltip, axisProps } from "@/components/charts/ChartsParts";
 import { COLORS, fmtNum, monthLabel } from "@/lib/format";
 
 const buildData = (r) => {

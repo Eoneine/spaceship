@@ -6,7 +6,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from pathlib import Path
 
-load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query  # noqa: E402
 from fastapi.responses import StreamingResponse  # noqa: E402

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUp, History, Trash2 } from "lucide-react";
 import { askStream } from "@/lib/api";
-import { AnswerCard } from "./AnswerCard";
+import { AnswerCard } from "./AnswerCards";
 
 const STORE = "lac_history_v1";
 
