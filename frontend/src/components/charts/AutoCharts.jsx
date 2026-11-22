@@ -1,7 +1,7 @@
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { ChartTooltip, axisProps } from "./ChartParts";
+import { ChartTooltip, axisProps } from "./ChartsParts";
 import { COLORS, PALETTE, fmtMetric, metricColor } from "@/lib/format";
 
 const pivot = (rows, x, seriesKey) => {

@@ -6,18 +6,17 @@ import json
 import logging
 import os
 import re
-import uuid
+from pathlib import Path
+from types import SimpleNamespace
 from typing import AsyncIterator
 
-from emergentintegrations.llm.chat import (
-    ChatError,
-    LlmChat,
-    StreamDone,
-    TextDelta,
-    ToolCallReady,
-    UserMessage,
-)
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+from google.genai.errors import APIError
 from pydantic import ValidationError
+
+ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
 from .data import DIMENSION_VALUES, METRIC_DEFINITIONS, REFERENCE_DATE
 from .forecast_tool import ForecastRequest, run_forecast
@@ -198,6 +197,7 @@ TOOLS = [
 
 
 def ai_available() -> bool:
+    load_dotenv(ENV_PATH, override=True)
     return bool(os.environ.get("GEMINI_API_KEY"))
 
 
@@ -254,19 +254,52 @@ def _provider_error(e: Exception) -> dict:
     }
 
 
-def _chat(system: str, tools: bool):
-    chat = LlmChat(
-        api_key=os.environ["GEMINI_API_KEY"],
-        session_id=str(uuid.uuid4()),
-        system_message=system,
-    ).with_model("gemini", os.environ["GEMINI_MODEL"])
-    return chat.with_tools(TOOLS, tool_choice="auto") if tools else chat
+DEFAULT_MODEL = "gemini-3.8-flash"
+
+
+def _model() -> str:
+    load_dotenv(ENV_PATH, override=True)
+    return os.environ.get("GEMINI_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
+
+
+def _client() -> genai.Client:
+    load_dotenv(ENV_PATH, override=True)
+    return genai.Client(api_key=os.environ["GEMINI_API_KEY"].strip())
+
+
+def _gemini_tools() -> list[types.Tool]:
+    return [
+        types.Tool(
+            function_declarations=[
+                types.FunctionDeclaration(
+                    name=t["function"]["name"],
+                    description=t["function"]["description"],
+                    parameters_json_schema=t["function"]["parameters"],
+                )
+                for t in TOOLS
+            ]
+        )
+    ]
 
 
 SUMMARY_PROMPT = (
     "You summarise computed logistics analytics results. Reply in 1-2 plain sentences using ONLY "
     "numbers present in the RESULT. Mention the period. No markdown, no speculation."
 )
+
+
+def _generate(model: str, contents: str, config: types.GenerateContentConfig):
+    client = _client()
+    return client.models.generate_content(model=model, contents=contents, config=config)
+
+
+def _generate_stream(model: str, contents: str, config: types.GenerateContentConfig):
+    client = _client()
+    return list(
+        client.models.generate_content_stream(
+            model=model, contents=contents, config=config
+        )
+    )
 
 
 async def _route(question: str, attempts: list):
@@ -279,23 +312,30 @@ async def _route(question: str, attempts: list):
             + "\nCall the tool again with fixed arguments."
         )
     calls, out = [], []
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        tools=_gemini_tools(),
+    )
     for attempt in range(2):
         try:
-            async for ev in _chat(SYSTEM_PROMPT, True).stream_message(
-                UserMessage(text=text)
-            ):
-                if isinstance(ev, TextDelta):
-                    out.append(ev.content)
-                elif isinstance(ev, ToolCallReady):
-                    calls.append(ev.tool_call)
-                elif isinstance(ev, StreamDone):
-                    break
+            resp = await asyncio.to_thread(_generate, _model(), text, config)
+            if resp.function_calls:
+                for fc in resp.function_calls:
+                    calls.append(
+                        SimpleNamespace(
+                            name=fc.name,
+                            arguments=dict(fc.args) if fc.args else {},
+                        )
+                    )
+            if resp.text:
+                out.append(resp.text)
             break
-        except ChatError as e:
+        except APIError as e:
             if attempt or not (
                 "503" in str(e)
                 or "overloaded" in str(e).lower()
                 or "high demand" in str(e).lower()
+                or "unavailable" in str(e).lower()
             ):
                 raise
             calls, out = [], []
@@ -360,7 +400,7 @@ async def ask(question: str) -> AsyncIterator[dict]:
         result["validation_attempts"] = attempts
         yield {"type": "result", "result": result}
         yield {"type": "status", "step": "summarizing"}
-    except ChatError as e:  # provider errors, quota, network
+    except (APIError, Exception) as e:  # provider errors, quota, network
         yield _provider_error(e)
         return
     if not SUMMARY_ENABLED:
@@ -369,16 +409,18 @@ async def ask(question: str) -> AsyncIterator[dict]:
     try:
         parts = []
         prompt = f"QUESTION: {question}\nRESULT: {_compact(result)}"
-        async for ev in _chat(SUMMARY_PROMPT, False).stream_message(
-            UserMessage(text=prompt)
-        ):
-            if isinstance(ev, TextDelta):
-                parts.append(ev.content)
-                yield {"type": "delta", "text": ev.content}
-            elif isinstance(ev, StreamDone):
-                break
+        chunks = await asyncio.to_thread(
+            _generate_stream,
+            _model(),
+            prompt,
+            types.GenerateContentConfig(system_instruction=SUMMARY_PROMPT),
+        )
+        for chunk in chunks:
+            if chunk.text:
+                parts.append(chunk.text)
+                yield {"type": "delta", "text": chunk.text}
         yield {"type": "done", "answer": "".join(parts).strip() or result["headline"]}
-    except ChatError as e:
+    except (APIError, Exception) as e:
         log.error("summary failed: %s", _redact(str(e))[:300])
         yield {
             "type": "done",

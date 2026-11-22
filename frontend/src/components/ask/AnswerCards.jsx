@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AlertCircle, Ban, Sparkles } from "lucide-react";
-import { AutoChart } from "@/components/charts/AutoChart";
+import { AutoChart } from "@/components/charts/AutoCharts";
 import { ForecastView } from "@/components/forecast/ForecastView";
 import { StatusPipeline } from "./StatusPipeline";
 import { ExplainPanel } from "./ExplainPanel";
