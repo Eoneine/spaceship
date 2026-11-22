@@ -11,7 +11,7 @@ A web app for one logistics client. It has a KPI dashboard, a plain-English "Ask
 ### Stack
 - **Frontend:** React 19, Tailwind, shadcn/ui, Recharts
 - **Backend:** Python, FastAPI, Pandas, NumPy
-- **AI:** Google Gemini (Flash) through function calling, using the `emergentintegrations`/LiteLLM wrapper
+- **AI:** OpenRouter (or any OpenAI-compatible provider) through function calling, using the official `openai` Python SDK
 - **Data:** `backend/data/mock_logistics_data.csv`. It is loaded once into memory and treated as read-only, so there is no DB for analytics.
 
 ### Run locally
@@ -32,9 +32,10 @@ yarn start
 ### Environment variables
 | Var | Where | Purpose |
 |---|---|---|
-| `GEMINI_API_KEY` | backend | Google AI Studio key. If it is missing, Ask shows "AI unavailable", and Dashboard and Forecast keep working. |
-| `GEMINI_MODEL` | backend | Gemini model id, e.g. `gemini-3.1-flash-lite-preview` (fast, generous free quota; any Gemini model with function calling works) |
-| `ASK_AI_SUMMARY` | backend | `false` (default): one Gemini call per question; the answer text is the code-generated headline. `true`: a second call rewrites it in natural language (numbers still only from the result). |
+| `LLM_BASE_URL` | backend | OpenAI-compatible API base URL (default: `https://openrouter.ai/api/v1`) |
+| `LLM_API_KEY` | backend | OpenRouter (or compatible provider) API key. If missing, Ask shows "AI unavailable", and Dashboard and Forecast keep working. |
+| `LLM_MODEL` | backend | Model ID on OpenRouter, e.g. `anthropic/claude-sonnet-4` (any model with function calling works) |
+| `ASK_AI_SUMMARY` | backend | `false` (default): one LLM call per question; the answer text is the code-generated headline. `true`: a second call rewrites it in natural language (numbers still only from the result). |
 | `CORS_ORIGINS` | backend | Allowed origins (`*` for demo) |
 | `REACT_APP_BACKEND_URL` | frontend | Base URL of the API |
 
