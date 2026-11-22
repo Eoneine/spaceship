@@ -1,4 +1,4 @@
-"""AI layer: Gemini only interprets the question and picks a tool + structured arguments.
+"""AI layer: LLM only interprets the question and picks a tool + structured arguments.
 All numbers come from query_tool / forecast_tool."""
 
 import asyncio
@@ -11,9 +11,7 @@ from types import SimpleNamespace
 from typing import AsyncIterator
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
-from google.genai.errors import APIError
+from openai import APIError, OpenAI, RateLimitError
 from pydantic import ValidationError
 
 ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
@@ -196,9 +194,13 @@ TOOLS = [
 ]
 
 
+DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+
+
 def ai_available() -> bool:
     load_dotenv(ENV_PATH, override=True)
-    return bool(os.environ.get("GEMINI_API_KEY"))
+    return bool(os.environ.get("LLM_API_KEY", "").strip())
 
 
 def _execute(name: str, args: dict) -> dict:
@@ -229,23 +231,31 @@ def _compact(result: dict) -> str:
     return json.dumps(keep, default=str)
 
 
-SUMMARY_ENABLED = os.environ.get("ASK_AI_SUMMARY", "false").lower() == "true"
+def _summary_enabled() -> bool:
+    load_dotenv(ENV_PATH, override=True)
+    return os.environ.get("ASK_AI_SUMMARY", "false").lower() == "true"
 
 
 def _redact(text: str) -> str:
-    return re.sub(r"key=[\w-]+", "key=***", text).replace(
-        os.environ.get("GEMINI_API_KEY", "@@"), "***"
-    )
+    api_key = os.environ.get("LLM_API_KEY", "").strip()
+    redacted = re.sub(r"key=[\w-]+", "key=***", text)
+    return redacted.replace(api_key, "***") if api_key else redacted
 
 
 def _provider_error(e: Exception) -> dict:
     msg = str(e)
-    log.error("gemini call failed: %s", _redact(msg)[:300])
-    if "429" in msg or "RESOURCE_EXHAUSTED" in msg or "quota" in msg.lower():
+    log.error("llm call failed: %s", _redact(msg)[:300])
+    if (
+        isinstance(e, RateLimitError)
+        or "429" in msg
+        or "quota" in msg.lower()
+        or "rate limit" in msg.lower()
+        or "credit" in msg.lower()
+    ):
         return {
             "type": "error",
             "code": "ai_quota",
-            "message": "Gemini quota exceeded for this API key. Try again later; Dashboard and Forecast still work.",
+            "message": "AI quota or rate limit exceeded for this API key. Try again later; Dashboard and Forecast still work.",
         }
     return {
         "type": "error",
@@ -254,32 +264,24 @@ def _provider_error(e: Exception) -> dict:
     }
 
 
-DEFAULT_MODEL = "gemini-3.8-flash"
-
-
 def _model() -> str:
     load_dotenv(ENV_PATH, override=True)
-    return os.environ.get("GEMINI_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
+    return os.environ.get("LLM_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
 
 
-def _client() -> genai.Client:
+def _client() -> OpenAI:
     load_dotenv(ENV_PATH, override=True)
-    return genai.Client(api_key=os.environ["GEMINI_API_KEY"].strip())
-
-
-def _gemini_tools() -> list[types.Tool]:
-    return [
-        types.Tool(
-            function_declarations=[
-                types.FunctionDeclaration(
-                    name=t["function"]["name"],
-                    description=t["function"]["description"],
-                    parameters_json_schema=t["function"]["parameters"],
-                )
-                for t in TOOLS
-            ]
-        )
-    ]
+    base_url = os.environ.get("LLM_BASE_URL", DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL
+    headers = {}
+    if site_url := os.environ.get("OPENROUTER_SITE_URL", "").strip():
+        headers["HTTP-Referer"] = site_url
+    if app_name := os.environ.get("OPENROUTER_APP_NAME", "").strip():
+        headers["X-Title"] = app_name
+    return OpenAI(
+        base_url=base_url,
+        api_key=os.environ["LLM_API_KEY"].strip(),
+        default_headers=headers or None,
+    )
 
 
 SUMMARY_PROMPT = (
@@ -288,18 +290,34 @@ SUMMARY_PROMPT = (
 )
 
 
-def _generate(model: str, contents: str, config: types.GenerateContentConfig):
+def _route_completion(model: str, text: str):
     client = _client()
-    return client.models.generate_content(model=model, contents=contents, config=config)
-
-
-def _generate_stream(model: str, contents: str, config: types.GenerateContentConfig):
-    client = _client()
-    return list(
-        client.models.generate_content_stream(
-            model=model, contents=contents, config=config
-        )
+    return client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
+        tools=TOOLS,
+        tool_choice="auto",
     )
+
+
+def _summary_stream(model: str, prompt: str) -> list[str]:
+    client = _client()
+    stream = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SUMMARY_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        stream=True,
+    )
+    chunks: list[str] = []
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            chunks.append(chunk.choices[0].delta.content)
+    return chunks
 
 
 async def _route(question: str, attempts: list):
@@ -312,27 +330,25 @@ async def _route(question: str, attempts: list):
             + "\nCall the tool again with fixed arguments."
         )
     calls, out = [], []
-    config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_PROMPT,
-        tools=_gemini_tools(),
-    )
     for attempt in range(2):
         try:
-            resp = await asyncio.to_thread(_generate, _model(), text, config)
-            if resp.function_calls:
-                for fc in resp.function_calls:
-                    calls.append(
-                        SimpleNamespace(
-                            name=fc.name,
-                            arguments=dict(fc.args) if fc.args else {},
-                        )
-                    )
-            if resp.text:
-                out.append(resp.text)
+            resp = await asyncio.to_thread(_route_completion, _model(), text)
+            msg = resp.choices[0].message if resp.choices else None
+            if msg and msg.tool_calls:
+                for tc in msg.tool_calls:
+                    raw_args = tc.function.arguments or "{}"
+                    try:
+                        parsed = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    calls.append(SimpleNamespace(name=tc.function.name, arguments=parsed))
+            if msg and msg.content:
+                out.append(msg.content)
             break
         except APIError as e:
             if attempt or not (
-                "503" in str(e)
+                "502" in str(e)
+                or "503" in str(e)
                 or "overloaded" in str(e).lower()
                 or "high demand" in str(e).lower()
                 or "unavailable" in str(e).lower()
@@ -348,7 +364,7 @@ async def ask(question: str) -> AsyncIterator[dict]:
         yield {
             "type": "error",
             "code": "ai_unavailable",
-            "message": "AI unavailable: no Gemini API key configured. Dashboard and Forecast still work.",
+            "message": "AI unavailable: no LLM API key configured. Dashboard and Forecast still work.",
         }
         return
     yield {"type": "status", "step": "interpreting"}
@@ -403,22 +419,16 @@ async def ask(question: str) -> AsyncIterator[dict]:
     except (APIError, Exception) as e:  # provider errors, quota, network
         yield _provider_error(e)
         return
-    if not SUMMARY_ENABLED:
+    if not _summary_enabled():
         yield {"type": "done", "answer": result["headline"]}
         return
     try:
         parts = []
         prompt = f"QUESTION: {question}\nRESULT: {_compact(result)}"
-        chunks = await asyncio.to_thread(
-            _generate_stream,
-            _model(),
-            prompt,
-            types.GenerateContentConfig(system_instruction=SUMMARY_PROMPT),
-        )
-        for chunk in chunks:
-            if chunk.text:
-                parts.append(chunk.text)
-                yield {"type": "delta", "text": chunk.text}
+        chunks = await asyncio.to_thread(_summary_stream, _model(), prompt)
+        for text_chunk in chunks:
+            parts.append(text_chunk)
+            yield {"type": "delta", "text": text_chunk}
         yield {"type": "done", "answer": "".join(parts).strip() or result["headline"]}
     except (APIError, Exception) as e:
         log.error("summary failed: %s", _redact(str(e))[:300])
