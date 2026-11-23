@@ -195,7 +195,7 @@ TOOLS = [
 
 
 DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
-DEFAULT_MODEL = "anthropic/claude-sonnet-4"
+DEFAULT_MODEL = "anthropic/claude-sonnet-5.5"
 
 
 def ai_available() -> bool:

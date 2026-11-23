@@ -1,70 +1,97 @@
-# Getting Started with Create React App
+# Frontend — Logistics Analytics Copilot
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+React 19 single-page application providing the KPI Dashboard, Ask the Data (SSE streaming), and Demand Forecast views.
 
-## Available Scripts
+## Tech Stack
 
-In the project directory, you can run:
+- **Framework:** React 19 with CRACO (`@craco/craco` + `react-scripts`)
+- **Styling and UI:** Tailwind CSS, shadcn/ui (Radix UI primitives), Lucide icons
+- **Charts:** Recharts
+- **Data Fetching:** Axios (REST), native Fetch ReadableStream (SSE), TanStack Query
 
-### `npm start`
+---
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Directory Structure
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+```text
+frontend/
+├── public/
+│   └── index.html
+├── src/
+│   ├── components/
+│   │   ├── Header.jsx              # Top navigation bar and dataset metadata badge
+│   │   ├── ask/                    # AskTab, AnswerCards, DataTable, ExplainPanel, StatusPipeline
+│   │   ├── charts/                 # AutoCharts, ChartsParts (dynamic chart renderer)
+│   │   ├── dashboard/              # DashboardTab, FilterBar, KpiGrid, DashboardCharts
+│   │   ├── forecast/               # ForecastTab, ForecastView
+│   │   └── ui/                     # shadcn/ui reusable primitives
+│   ├── hooks/
+│   ├── lib/
+│   │   ├── api.js                  # REST and SSE client targeting REACT_APP_BACKEND_URL
+│   │   ├── format.js               # Number, currency, date, and metric formatters
+│   │   └── utils.js
+│   ├── app.js                      # Root shell managing active tab and /api/meta state
+│   └── index.js
+├── .env.example
+├── craco.config.js                 # Path alias (@ -> src) and webpack-dev-server v5 compatibility
+├── jsconfig.json
+├── package.json
+└── vercel.json                     # Vercel build and SPA rewrite configuration
+```
 
-### `npm test`
+---
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Frontend Data Flow
 
-### `npm run build`
+```mermaid
+flowchart LR
+    App["app.js (GET /api/meta)"] --> Header["Header.jsx (Tab Switcher)"]
+    App --> Dash["DashboardTab (GET /api/dashboard)"]
+    App --> Ask["AskTab (POST /api/ask SSE)"]
+    App --> Fcst["ForecastTab (POST /api/forecast)"]
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+    Ask --> Pipeline["StatusPipeline"]
+    Ask --> Card["AnswerCards (AutoCharts / DataTable / ExplainPanel)"]
+    Ask <--> Store["localStorage (Session History)"]
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+---
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Environment Variables
 
-### `npm run eject`
+Copy `.env.example` to `.env` in `frontend/`:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `REACT_APP_BACKEND_URL` | Yes (in production) | `http://localhost:8001` | Base URL of the FastAPI backend without a trailing slash |
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+Important: Create React App / CRACO embeds `REACT_APP_*` variables at **build time**. Any change to `REACT_APP_BACKEND_URL` requires a rebuild or redeploy.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+---
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Local Development and Build
 
-## Learn More
+```bash
+cd frontend
+yarn install
+cp .env.example .env
+yarn start
+```
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+The development server runs at `http://localhost:3000`.
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+Production build:
 
-### Code Splitting
+```bash
+cd frontend
+yarn build
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+---
 
-### Analyzing the Bundle Size
+## Deployment on Vercel
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1. Import the GitHub repository on Vercel and set **Root Directory** to `frontend`.
+2. `frontend/vercel.json` defines `buildCommand` (`yarn build`), `outputDirectory` (`build`), and SPA rewrites.
+3. Add the environment variable `REACT_APP_BACKEND_URL` set to your Railway backend URL (for example `https://your-backend.up.railway.app`, without a trailing slash).
+4. Deploy. Future merges to `master` will trigger automatic redeployment (CD).
